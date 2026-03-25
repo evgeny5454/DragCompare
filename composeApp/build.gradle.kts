@@ -20,8 +20,14 @@ kotlin {
             implementation(libs.compose.ui)
             implementation(libs.compose.components.resources)
             implementation(libs.compose.uiToolingPreview)
-            implementation(libs.androidx.lifecycle.viewmodelCompose)
-            implementation(libs.androidx.lifecycle.runtimeCompose)
+//            implementation(libs.androidx.lifecycle.viewmodelCompose)
+//            implementation(libs.androidx.lifecycle.runtimeCompose)
+            implementation(compose.materialIconsExtended)
+
+            api(libs.koin.core)
+            implementation(libs.koin.compose)
+            implementation(libs.koin.compose.viewmodel)
+
 
         }
         commonTest.dependencies {
@@ -48,10 +54,14 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Exe)
             packageName = "ru.evgeny5454.compare"
-            packageVersion = "1.0.0"
+            packageVersion = "1.1.0"
             windows {
-                menuGroup = "MyApp"
-                iconFile.set(file("default-icon-windows.ico")) // Если есть иконка
+                shortcut = true
+                menu = true
+                perUserInstall = true
+                dirChooser = true
+
+                menuGroup = "Grag Compare"
             }
         }
     }
