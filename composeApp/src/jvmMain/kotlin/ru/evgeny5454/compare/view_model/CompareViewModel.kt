@@ -19,8 +19,6 @@ import kotlinx.coroutines.withContext
 import org.apache.poi.ss.usermodel.WorkbookFactory
 import ru.evgeny5454.compare.matcher.MatchResultData
 import ru.evgeny5454.compare.matcher.Matcher
-import ru.evgeny5454.compare.matcher.Matcher2
-import ru.evgeny5454.compare.matcher.Matcher3
 
 import java.io.File
 import kotlin.collections.emptyList
@@ -278,17 +276,27 @@ class CompareViewModel : ViewModel() {
             val result = mutableListOf<MatchResultData>()
 
             rows1.forEachIndexed { i, source ->
-
                 val match = matcher.findBestMatchIndexed(source, index)
                 result.add(match)
-
                 mProgress.value = (i + 1) / total.toFloat()
             }
-                mCompareResult.value = result
-                mInProgress.value = false
+            markDuplicates(result)
+            mCompareResult.value = result
+            mInProgress.value = false
         }
     }
 
+}
+
+fun markDuplicates(results: List<MatchResultData>) {
+    val matcher = Matcher()
+
+    val counts = results.groupingBy { matcher.normalize(it.match.fullText) }.eachCount()
+
+    results.forEach { result ->
+        val key = matcher.normalize(result.match.fullText)
+        result.isDuplicate = (counts[key] ?: 0) > 1
+    }
 }
 
 data class CompareSettings(

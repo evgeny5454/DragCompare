@@ -21,6 +21,9 @@ in your IDE’s toolbar or run it directly from the terminal:
   ```shell
   .\gradlew.bat :composeApp:run
   ```
+  ```shell
+  .\gradlew packageExe
+  ```
 
 ---
 

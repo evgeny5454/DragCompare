@@ -1,26 +1,34 @@
 package ru.evgeny5454.compare
 
 import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Button
 import androidx.compose.material.Text
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.unit.dp
 import org.apache.poi.xssf.usermodel.XSSFWorkbook
 import ru.evgeny5454.compare.matcher.MatchResultData
@@ -125,8 +133,8 @@ fun CompareScreen(viewModel: CompareViewModel) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text("Сопоставить")
-                        Spacer(Modifier.width(8.dp))
                         if (inProgress) {
+                            Spacer(Modifier.width(10.dp))
                             if (progress == 0f) {
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(32.dp),
@@ -189,12 +197,40 @@ fun CompareScreen(viewModel: CompareViewModel) {
                     append("Совпадение: ${item.similarityPercent}%")
                 }
 
-                TextField(
-                    value = string,
-                    onValueChange = {},
-                    enabled = true,
+                Box(
                     modifier = Modifier.fillMaxWidth()
-                )
+                        .padding(vertical = 8.dp)
+                        .border(
+                            if (item.isDuplicate) 2.dp else 1.dp,
+                            if (item.isDuplicate) Color.Red else Color.LightGray,
+                            RoundedCornerShape(4.dp)
+                        )
+                ) {
+                    TextField(
+                        value = string,
+                        onValueChange = {},
+                        enabled = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = TextFieldDefaults.colors().copy(
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent,
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            cursorColor = Color.Transparent
+                        )
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .padding(16.dp)
+                            .size(16.dp)
+                            .clip(CircleShape)
+                            .background(similarityToColor(item.similarityPercent))
+                            .align(Alignment.TopEnd)
+
+                    )
+                }
+
             }
         }
     }
@@ -223,7 +259,7 @@ private fun exportToExcel(
     headers += secondExtras.map { it }
 
     headers += "% Совпадения"
-
+    headers += "Дубли"
     headers.forEachIndexed { i, title ->
         header.createCell(i).setCellValue(title)
     }
@@ -248,7 +284,9 @@ private fun exportToExcel(
             )
         }
 
-        row.createCell(col).setCellValue(result.similarityPercent)
+        row.createCell(col++).setCellValue("${result.similarityPercent}")
+        val cell = row.createCell(col++)
+        cell.setCellValue(if (result.isDuplicate) "да" else "")
     }
 
     headers.indices.forEach { sheet.autoSizeColumn(it) }
@@ -259,6 +297,20 @@ private fun exportToExcel(
 
     workbook.close()
     return outputFile
+}
+
+fun similarityToColor(similarityPercent: Float): Color {
+    val clamped = similarityPercent.coerceIn(0f, 100f)
+
+    return if (clamped <= 50f) {
+        // интерполируем красный → желтый
+        val fraction = clamped / 50f
+        lerp(Color.Red, Color.Yellow, fraction)
+    } else {
+        // интерполируем желтый → зеленый
+        val fraction = (clamped - 50f) / 50f
+        lerp(Color.Yellow, Color.Green, fraction)
+    }
 }
 
 private fun chooseSaveFile(defaultName: String = "matches_result.xlsx"): File? {

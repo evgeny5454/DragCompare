@@ -3,13 +3,14 @@ package ru.evgeny5454.compare
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Icon
 import androidx.compose.material.IconButton
 import androidx.compose.material.MaterialTheme
-import androidx.compose.material.OutlinedTextField
 import androidx.compose.material.Scaffold
 import androidx.compose.material.Text
 import androidx.compose.material.TopAppBar
@@ -17,6 +18,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -51,107 +55,133 @@ fun App() {
                 TopAppBar(
                     title = {
                         val inProgress by viewModel.inProgress.collectAsState()
-                        if (inProgress) {
-                            val progress by viewModel.progress.collectAsState()
-                            if (progress == 0f) {
+                        Crossfade(
+                            inProgress
+                        ) { progressIn ->
+                            if (progressIn) {
+                                val progress by viewModel.progress.collectAsState()
+                                if (progress == 0f) {
 
-                                var dotsCount by remember { mutableStateOf(0) }
+                                    var dotsCount by remember { mutableStateOf(0) }
 
-                                LaunchedEffect(Unit) {
-                                    while (true) {
-                                        delay(500)
-                                        dotsCount = (dotsCount + 1) % 4
+                                    LaunchedEffect(Unit) {
+                                        while (true) {
+                                            delay(500)
+                                            dotsCount = (dotsCount + 1) % 4
+                                        }
                                     }
+
+                                    Text("Инициализация" + ".".repeat(dotsCount))
+                                } else {
+                                    val present = progress * 100F
+                                    val animPers by animateFloatAsState(present)
+                                    val perString = String.format("%.1f", animPers)
+
+                                    Text("Проресс: $perString%")
                                 }
 
-                                Text("Инициализация" + ".".repeat(dotsCount))
-                            } else {
-                                val present = progress * 100F
-                                val perString = String.format("%.1f", present)
-
-                                Text("Проресс: $perString%")
                             }
-
                         }
+
                     },
                     backgroundColor = MaterialTheme.colors.background,
                     actions = {
+                        var search by remember { mutableStateOf(false) }
                         Box(
-                            modifier = Modifier.animateContentSize()
+                            modifier = Modifier.border(
+                                2.dp,
+                                if (search) MaterialTheme.colors.primary else Color.Transparent,
+                                RoundedCornerShape(4.dp)
+                            )
                         ) {
-                            var search by remember { mutableStateOf(false) }
-                            Crossfade(
-                                search
-                            ) { searchEnabled ->
-                                if (searchEnabled) {
-                                    val focusRequester = remember { FocusRequester() }
-                                    val searchText by viewModel.search.collectAsState()
+                            Box(
+                                modifier = Modifier.animateContentSize()
+                            ) {
+                                Crossfade(
+                                    search
+                                ) { searchEnabled ->
+                                    if (searchEnabled) {
+                                        val focusRequester = remember { FocusRequester() }
+                                        val searchText by viewModel.search.collectAsState()
 
-                                    LaunchedEffect(Unit) {
-                                        focusRequester.requestFocus()
-                                    }
+                                        LaunchedEffect(Unit) {
+                                            focusRequester.requestFocus()
+                                        }
 
-                                    OutlinedTextField(
-                                        value = searchText,
-                                        onValueChange = { change ->
-                                            viewModel.searchChange(change)
-                                        },
-                                        modifier = Modifier.focusRequester(focusRequester),
-                                        leadingIcon = {
+                                        OutlinedTextField(
+                                            colors = OutlinedTextFieldDefaults.colors().copy(
+                                                focusedIndicatorColor = Color.Transparent,
+                                                unfocusedIndicatorColor = Color.Transparent
+                                            ),
+                                            value = searchText,
+                                            onValueChange = { change ->
+                                                viewModel.searchChange(change)
+                                            },
+                                            modifier = Modifier.focusRequester(focusRequester),
+                                            leadingIcon = {
+                                                IconButton(
+                                                    onClick = {
+                                                        search = !search
+                                                    },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.Search,
+                                                        null
+                                                    )
+                                                }
+                                            },
+                                            trailingIcon = {
+                                                Crossfade(
+                                                    searchText.text.isNotEmpty()
+                                                ) { visible ->
+                                                    if (visible) {
+                                                        IconButton(
+                                                            onClick = {
+                                                                viewModel.searchChange(
+                                                                    TextFieldValue()
+                                                                )
+                                                            }
+                                                        ) {
+                                                            Icon(
+                                                                Icons.Default.Clear,
+                                                                null
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            placeholder = {
+                                                Text(
+                                                    "Поиск по названию"
+                                                )
+                                            }
+                                        )
+                                    } else {
+                                        Box(
+                                            modifier = Modifier.size(52.dp)
+                                                .padding(top = 4.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            val compareResult by viewModel.compareResult.collectAsState()
                                             IconButton(
                                                 onClick = {
                                                     search = !search
                                                 },
-                                                modifier = Modifier.size(32.dp)
+                                                modifier = Modifier.size(32.dp),
+                                                enabled = compareResult.isNotEmpty()
                                             ) {
                                                 Icon(
                                                     Icons.Default.Search,
                                                     null
                                                 )
                                             }
-                                        },
-                                        trailingIcon = {
-                                            Crossfade(
-                                                searchText.text.isNotEmpty()
-                                            ) { visible ->
-                                                if (visible) {
-                                                    IconButton(
-                                                        onClick = {
-                                                            viewModel.searchChange(TextFieldValue())
-                                                        }
-                                                    ) {
-                                                        Icon(
-                                                            Icons.Default.Clear,
-                                                            null
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    )
-                                } else {
-                                    Box(
-                                        modifier = Modifier.size(52.dp)
-                                            .padding(top = 4.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        val compareResult by viewModel.compareResult.collectAsState()
-                                        IconButton(
-                                            onClick = {
-                                                search = !search
-                                            },
-                                            modifier = Modifier.size(32.dp),
-                                            enabled = compareResult.isNotEmpty()
-                                        ) {
-                                            Icon(
-                                                Icons.Default.Search,
-                                                null
-                                            )
                                         }
                                     }
                                 }
                             }
                         }
+
 
                         val fistFileDetailsShow by viewModel.fistFileDetailsShow.collectAsState()
                         val secondFileDetailsShow by viewModel.secondFileDetailsShow.collectAsState()
