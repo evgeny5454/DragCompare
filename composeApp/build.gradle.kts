@@ -68,12 +68,15 @@ sqldelight {
 
 compose.desktop {
     application {
+        nativeDistributions {
+            modules("java.sql")
+        }
         mainClass = "ru.evgeny5454.compare.MainKt"
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Exe)
-            packageName = "ru.evgeny5454.compare"
-            packageVersion = "1.1.2"
+            packageName = "Drag Compare"
+            packageVersion = "1.1.3"
             windows {
                 shortcut = true
                 menu = true
