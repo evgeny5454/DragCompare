@@ -3,29 +3,42 @@ package ru.evgeny5454.compare.view_model
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import org.apache.poi.ss.usermodel.WorkbookFactory
+import ru.evgeny5454.compare.data.repository.SettingsRepository
 import ru.evgeny5454.compare.matcher.MatchResultData
 import ru.evgeny5454.compare.matcher.Matcher
-
 import java.io.File
-import kotlin.collections.emptyList
-import kotlin.collections.map
 
 
-class CompareViewModel : ViewModel() {
+class CompareViewModel(
+    private val settings: SettingsRepository
+) : ViewModel() {
+
+    val autoCheckDuplicates: StateFlow<Boolean> = settings.observeAutoCheckDuplicates()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = false
+        )
+
+    fun autoCheckDuplicatesChange(boolean: Boolean) {
+        settings.updateAutoCheckDuplicates(boolean)
+    }
 
     private val mFirstFile: MutableStateFlow<File?> = MutableStateFlow(null)
     val firstFile: StateFlow<File?> = mFirstFile
@@ -202,39 +215,125 @@ class CompareViewModel : ViewModel() {
         MutableStateFlow(emptyList())
     val compareResult: StateFlow<List<MatchResultData>> = mCompareResult
 
+    init {
+        viewModelScope.launch {
+            mCompareResult
+                .map { markDuplicatesAuto(it) } // помечаем дубликаты
+                .collect { updatedList ->
+                    if (autoCheckDuplicates.value) {
+                        mCompareResult.value = updatedList // сохраняем обратно
+                    }
+                }
+        }
+    }
+
+    fun manualUpdateItem(item: MatchResultData) {
+        mCompareResult.value = mCompareResult.value.map { existingItem ->
+            if (existingItem.id == item.id) item.copy(updated = true) else existingItem
+        }
+    }
+
     private val mSearch = MutableStateFlow(TextFieldValue())
     val search: StateFlow<TextFieldValue> = mSearch
+
 
     fun searchChange(change: TextFieldValue) {
         mSearch.value = change
     }
 
+    private val mFilterDuplicate = MutableStateFlow(false)
+    val filterDuplicate: StateFlow<Boolean> = mFilterDuplicate
+
+    fun filterDuplicate(change: Boolean) {
+        mFilterDuplicate.value = change
+    }
+
     @OptIn(FlowPreview::class)
     val searchResult: StateFlow<List<MatchResultData>> =
         mSearch
-            .debounce(300) // опционально (чтобы не дергать на каждый символ)
+            .debounce(300)
             .map { it.text.trim() }
-            .combine(mCompareResult) { query, list ->
-                if (query.isEmpty()) {
-                    list
-                } else {
-                    list.filter { item ->
+            .combine(mCompareResult) { query, list -> query to list }
+            .combine(mFilterDuplicate) { (query, list), duplicate ->
+                var result = list
+
+
+                if (query.isNotEmpty()) {
+                    result = result.filter { item ->
                         item.source.mainValue.contains(query, ignoreCase = true) ||
                                 item.match.mainValue.contains(query, ignoreCase = true)
                     }
                 }
+
+                if (duplicate) {
+                    result = result.filter { it.isDuplicate }.sortedBy { it.match.mainValue }
+                }
+                result
             }
             .stateIn(
                 scope = viewModelScope,
                 started = SharingStarted.WhileSubscribed(5000),
                 initialValue = emptyList()
             )
+    private val mManualSearch = MutableStateFlow(TextFieldValue())
+    val manualSearch: StateFlow<TextFieldValue> = mManualSearch
+
+    private val mManualSearchItems: MutableStateFlow<List<MatchResultData>> =
+        MutableStateFlow(emptyList())
+
+    @OptIn(FlowPreview::class)
+    val manualSearchItems: StateFlow<List<MatchResultData>> =
+        mManualSearch
+            .debounce(300)
+            .map { value ->
+                val query = normalizeSearch(value.text)
+
+                if (query.isEmpty()) {
+                    mManualSearchItems.value
+                } else {
+                    mManualSearchItems.value.filter { item ->
+                        matchesSmart(item.match.mainValue, query)
+                    }
+                }
+            }.stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000),
+                initialValue = emptyList()
+            )
+
+    private fun normalizeSearch(s: String): List<String> {
+        return s.lowercase()
+            .replace(Regex("[^a-zа-я0-9 ]"), " ")
+            .replace("®", " ")
+            .replace("_", " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+            .split(" ")
+            .filter { it.length > 1 }
+    }
+
+    private fun matchesSmart(text: String, queryWords: List<String>): Boolean {
+        val normalizedText = text.lowercase()
+            .replace(Regex("[^a-zа-я0-9 ]"), " ")
+            .replace(Regex("\\s+"), " ")
+
+        return queryWords.all { word ->
+            normalizedText.contains(word)
+        }
+    }
+
+    fun manualSearchChange(change: TextFieldValue) {
+        mManualSearch.value = change
+    }
+
 
     private val mProgress = MutableStateFlow(0f)
     val progress: StateFlow<Float> = mProgress
 
     private val mInProgress = MutableStateFlow(false)
     val inProgress: StateFlow<Boolean> = mInProgress
+    private val mIsCanceled = MutableStateFlow(false)
+    val isCanceled: StateFlow<Boolean> = mIsCanceled
 
     val mayCompare: StateFlow<Boolean> = combine(
         mFirstFile,
@@ -249,6 +348,7 @@ class CompareViewModel : ViewModel() {
         initialValue = false
     )
 
+    private var job: Job? = null
     fun startCompare() {
         val settings = CompareSettings(
             firstFile = mFirstFile.value ?: return,
@@ -260,33 +360,66 @@ class CompareViewModel : ViewModel() {
         )
         mInProgress.value = true
 
-        viewModelScope.launch(Dispatchers.IO) {
-            mProgress.value = 0f
-            val matcher = Matcher()
+        job = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                mProgress.value = 0f
+                val matcher = Matcher()
 
-            val df1 = matcher.readExcelFile(settings.firstFile)
-            val df2 = matcher.readExcelFile(settings.secondFile)
+                val df1 = matcher.readExcelFile(settings.firstFile)
+                ensureActive()
+                val df2 = matcher.readExcelFile(settings.secondFile)
+                ensureActive()
 
-            val rows1 = matcher.buildRowData(df1, settings.firstCompare, settings.firstExtras)
-            val rows2 = matcher.buildRowData(df2, settings.secondCompare, settings.secondExtras)
+                val rows1 = matcher.buildRowData(df1, settings.firstCompare, settings.firstExtras)
+                ensureActive()
+                val rows2 = matcher.buildRowData(df2, settings.secondCompare, settings.secondExtras)
+                ensureActive()
 
-            val index = matcher.buildIndex(rows2)
+                mManualSearchItems.value = rows2.map {
+                    MatchResultData(
+                        source = it,
+                        match = it,
+                        similarityPercent = 0f,
+                        id = 0
+                    )
+                }
 
-            val total = rows1.size.coerceAtLeast(1)
-            val result = mutableListOf<MatchResultData>()
+                val index = matcher.buildIndex(rows2)
+                ensureActive()
 
-            rows1.forEachIndexed { i, source ->
-                val match = matcher.findBestMatchIndexed(source, index)
-                result.add(match)
-                mProgress.value = (i + 1) / total.toFloat()
+                val total = rows1.size.coerceAtLeast(1)
+                val result = mutableListOf<MatchResultData>()
+
+                rows1.forEachIndexed { id, source ->
+                    ensureActive()
+                    val match = matcher.findBestMatchIndexed(source, index, id)
+                    result.add(match)
+                    mProgress.value = (id + 1) / total.toFloat()
+                }
+                if (!autoCheckDuplicates.value) {
+                    markDuplicates(result)
+                }
+
+                mCompareResult.value = result
+                mInProgress.value = false
+            } catch (cancel: CancellationException) {
+                mProgress.value = 0f
+                mInProgress.value = false
+                mIsCanceled.value = false
+            } catch (e: Exception) {
+
             }
-            markDuplicates(result)
-            mCompareResult.value = result
-            mInProgress.value = false
         }
     }
 
+    fun stopCompare() {
+        job?.let {
+            mIsCanceled.value = true
+            it.cancel()
+        }
+    }
 }
+
 
 fun markDuplicates(results: List<MatchResultData>) {
     val matcher = Matcher()
@@ -296,6 +429,17 @@ fun markDuplicates(results: List<MatchResultData>) {
     results.forEach { result ->
         val key = matcher.normalize(result.match.fullText)
         result.isDuplicate = (counts[key] ?: 0) > 1
+    }
+}
+
+fun markDuplicatesAuto(results: List<MatchResultData>): List<MatchResultData> {
+    val matcher = Matcher()
+    val counts = results.groupingBy { matcher.normalize(it.match.fullText) }.eachCount()
+
+    return results.map { result ->
+        val key = matcher.normalize(result.match.fullText)
+        val isDuplicate = if (result.match.mainValue.isEmpty()) false else (counts[key] ?: 0) > 1
+        result.copy(isDuplicate = isDuplicate)
     }
 }
 

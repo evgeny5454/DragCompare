@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.composeHotReload)
+    alias(libs.plugins.sqldelight)
 
     kotlin("plugin.dataframe") version "2.3.0"
 }
@@ -37,11 +38,29 @@ kotlin {
             implementation(compose.desktop.currentOs)
             implementation(libs.kotlinx.coroutinesSwing)
 
+            implementation(libs.sqldelight.coroutines)
+            implementation(libs.sqldelight.jvm.driver)
+
+
             implementation("org.jetbrains.kotlinx:dataframe:1.0.0-Beta4")
 
             implementation("org.apache.commons:commons-text:1.10.0")
 
             implementation("org.apache.poi:poi-ooxml:5.2.5")
+        }
+
+//        nativeMain.dependencies {
+//            implementation("app.cash.sqldelight:native-driver:2.3.2")
+//        }
+
+    }
+}
+
+sqldelight {
+    databases {
+        create("MainDB") {
+            packageName.set("ru.evgeny5454.compare.db")
+            version = 1
         }
     }
 }
@@ -54,7 +73,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Exe)
             packageName = "ru.evgeny5454.compare"
-            packageVersion = "1.1.0"
+            packageVersion = "1.1.2"
             windows {
                 shortcut = true
                 menu = true
