@@ -1,11 +1,13 @@
 package ru.evgeny5454.compare.matcher
 
+import kotlinx.coroutines.ensureActive
 import org.apache.commons.text.similarity.LevenshteinDistance
 import org.apache.poi.ss.usermodel.WorkbookFactory
 import org.jetbrains.kotlinx.dataframe.DataColumn
 import org.jetbrains.kotlinx.dataframe.DataFrame
 import org.jetbrains.kotlinx.dataframe.io.readExcel
 import java.io.File
+import kotlin.coroutines.coroutineContext
 import kotlin.math.roundToInt
 
 class Matcher() {
@@ -157,14 +159,16 @@ class Matcher() {
         "наст"
     )
 
+//    private val weakWords = setOf(
+//        "шип", "шипучие",
+//        "вишня", "апельсин", "лимон", "малина",
+//        "вкус", "со", "с",
+//        "форте", "лонг",
+//        "детский", "детская"
+//    )
+
     private fun parseDrug(text: String): DrugInfo {
         val normalized = normalize(text)
-
-        if (normalized.contains("а+е")) {
-            println("NORMALIZED_STRING: $normalized")
-        }
-
-
         // Дозировка и количество
         val dosageRegex = Regex("""\d+\+?\d*\s*(мг|mg|г|g|мл|ml)""")
         val quantityRegex = Regex("""№\s*\d+""")
@@ -181,11 +185,14 @@ class Matcher() {
 
         val brand = rawWords.firstOrNull()
 
-        val words = rawWords.map { w ->
+        val words = rawWords
+//            .filter { it !in ignoredWords }
+            .map { w ->
             val weight = when {
-                w == brand -> 3.0              // 🔥 главный приоритет
+                w == brand -> 3.0
                 w in brandWords -> 0.2
-                w in formWords -> 0.1
+                w in formWords -> 0.3
+//                w in weakWords -> 0.3
                 else -> 1.0
             }
             WeightedWord(w, weight)
@@ -219,8 +226,8 @@ class Matcher() {
         // правило "число х число" -> число * число, только если перед/после нет букв
         val regex = Regex("""\b(\d+)\s*[хx×]\s*(\d+)\b""")
         result = regex.replace(result) { match ->
-            val a = match.groupValues[1].toInt()
-            val b = match.groupValues[2].toInt()
+            val a = match.groupValues[1].toBigInteger()
+            val b = match.groupValues[2].toBigInteger()
             "№"+(a * b).toString()
         }
 
@@ -263,11 +270,11 @@ class Matcher() {
         return if (totalWeight == 0.0) 0.0 else intersectionWeight / totalWeight
     }
 
-    fun findBestMatchIndexed(
+    suspend fun findBestMatchIndexed(
         source: RowData,
-        index: Map<String, MutableList<RowData>>
+        index: Map<String, MutableList<RowData>>,
+        id: Int,
     ): MatchResultData {
-
         val sourceDrug = parseDrug(source.fullText)
         val candidates = mutableSetOf<RowData>()
 
@@ -285,13 +292,19 @@ class Matcher() {
 
         // 🔹 если всё ещё пусто — добавляем всех
         if (candidates.isEmpty()) {
-            candidates.addAll(index.values.flatten())
+//            candidates.addAll(index.values.flatten())
+            for (list in index.values) {
+                coroutineContext.ensureActive()
+                candidates.addAll(list)
+            }
         }
+
 
         var best: RowData? = null
         var bestScore = 0.0
 
         for (candidate in candidates) {
+            coroutineContext.ensureActive()
             val candidateDrug = parseDrug(candidate.fullText)
 
             val score = calculateScore(sourceDrug, candidateDrug, source.fullText, candidate.fullText)
@@ -305,7 +318,8 @@ class Matcher() {
         return MatchResultData(
             source = source,
             match = best ?: source,
-            similarityPercent = (bestScore * 10).roundToInt() / 10f
+            similarityPercent = (bestScore * 10).roundToInt() / 10f,
+            id = id
         )
     }
 
@@ -346,7 +360,9 @@ data class MatchResultData(
     val source: RowData,
     val match: RowData,
     val similarityPercent: Float,
-    var isDuplicate: Boolean = false
+    var isDuplicate: Boolean = false,
+    val id: Int,
+    val updated: Boolean = false
 )
 
 data class DrugInfo(

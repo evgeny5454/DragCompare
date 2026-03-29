@@ -1,0 +1,17 @@
+import kotlin.Boolean;
+
+CREATE TABLE IF NOT EXISTS UserSettings (
+    autoCheckDuplicates INTEGER AS Boolean DEFAULT 0
+);
+
+insertUserSettings:
+INSERT OR IGNORE INTO UserSettings(autoCheckDuplicates) VALUES (:value);
+
+updateAutoCheckDuplicates:
+UPDATE UserSettings
+SET autoCheckDuplicates = :value;
+
+getAutoCheckDuplicates:
+SELECT autoCheckDuplicates
+FROM UserSettings
+LIMIT 1;
